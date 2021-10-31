@@ -4,6 +4,7 @@ import requests
 
 
 class BaseTestRTC(RTCBase):
+
     def __str__(self):
         return "Test Base"
 
@@ -63,10 +64,12 @@ class TestRTCBase:
         resp = test_rtc.get(test_rtc.url,
                             verify=False,
                             headers=test_rtc.CONTENT_XML,
+                            proxies=None,
                             timeout=30)
         mocked_get.assert_called_once_with(test_rtc.url,
                                            verify=False,
                                            headers=test_rtc.CONTENT_XML,
+                                           proxies=None,
                                            timeout=30)
         assert resp == mock_resp
 
@@ -87,12 +90,14 @@ class TestRTCBase:
                              data=post_data,
                              json=None,
                              verify=False,
+                             proxies=None,
                              headers=test_rtc.CONTENT_XML,
                              timeout=30)
         mocked_post.assert_called_once_with(test_rtc.url,
                                             data=post_data,
                                             json=None,
                                             verify=False,
+                                            proxies=None,
                                             headers=test_rtc.CONTENT_XML,
                                             timeout=30)
         assert resp == mock_resp
@@ -114,12 +119,14 @@ class TestRTCBase:
                             data=post_data,
                             json=None,
                             verify=False,
+                            proxies=None,
                             headers=test_rtc.CONTENT_XML,
                             timeout=30)
         mocked_put.assert_called_once_with(test_rtc.url,
                                            data=post_data,
                                            json=None,
                                            verify=False,
+                                           proxies=None,
                                            headers=test_rtc.CONTENT_XML,
                                            timeout=30)
         assert resp == mock_resp

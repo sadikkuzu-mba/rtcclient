@@ -4,6 +4,7 @@ from rtcclient import requests
 import xmltodict
 from rtcclient import urlunquote, OrderedDict
 from rtcclient import exception
+from rtcclient.utils import token_expire_handler
 
 
 class RTCBase(object):
@@ -50,8 +51,9 @@ class RTCBase(object):
     def get_rtc_obj(self):
         pass
 
+    @token_expire_handler
     def get(self, url,
-            verify=False, headers=None,
+            verify=False, headers=None, proxies=None,
             timeout=60, **kwargs):
         """Sends a GET request. Refactor from requests module
 
@@ -60,15 +62,20 @@ class RTCBase(object):
             A CA_BUNDLE path can also be provided.
         :param headers: (optional) Dictionary of HTTP Headers to send with
             the :class:`Request`.
+        :param proxies: (optional) Dictionary mapping protocol to the URL of
+            the proxy.
+        :param timeout: (optional) How long to wait for the server to send data
+            before giving up, as a float, or a :ref:`(connect timeout, read
+            timeout) <timeouts>` tuple.
         :type timeout: float or tuple
-        :param \*\*kwargs: Optional arguments that ``request`` takes.
+        :param kwargs: Optional arguments that ``request`` takes.
         :return: :class:`Response <Response>` object
         :rtype: requests.Response
         """
 
         self.log.debug("Get response from %s", url)
         response = requests.get(url, verify=verify, headers=headers,
-                                timeout=timeout, **kwargs)
+                                proxies=proxies, timeout=timeout, **kwargs)
         if response.status_code != 200:
             self.log.error('Failed GET request at <%s> with response: %s',
                            url,
@@ -76,8 +83,10 @@ class RTCBase(object):
             response.raise_for_status()
         return response
 
+    @token_expire_handler
     def post(self, url, data=None, json=None,
-             verify=False, headers=None, timeout=60, **kwargs):
+             verify=False, headers=None, proxies=None,
+             timeout=60, **kwargs):
         """Sends a POST request. Refactor from requests module
 
         :param url: URL for the new :class:`Request` object.
@@ -89,8 +98,13 @@ class RTCBase(object):
             A CA_BUNDLE path can also be provided.
         :param headers: (optional) Dictionary of HTTP Headers to send with
             the :class:`Request`.
+        :param proxies: (optional) Dictionary mapping protocol to the URL of
+            the proxy.
+        :param timeout: (optional) How long to wait for the server to send data
+            before giving up, as a float, or a :ref:`(connect timeout, read
+            timeout) <timeouts>` tuple.
         :type timeout: float or tuple
-        :param \*\*kwargs: Optional arguments that ``request`` takes.
+        :param kwargs: Optional arguments that ``request`` takes.
         :return: :class:`Response <Response>` object
         :rtype: requests.Response
         """
@@ -99,7 +113,7 @@ class RTCBase(object):
                        url, data, json)
         response = requests.post(url, data=data, json=json,
                                  verify=verify, headers=headers,
-                                 timeout=timeout, **kwargs)
+                                 proxies=proxies, timeout=timeout, **kwargs)
 
         if response.status_code not in [200, 201]:
             self.log.error('Failed POST request at <%s> with response: %s',
@@ -109,8 +123,9 @@ class RTCBase(object):
             response.raise_for_status()
         return response
 
+    @token_expire_handler
     def put(self, url, data=None, verify=False,
-            headers=None, timeout=60, **kwargs):
+            headers=None, proxies=None, timeout=60, **kwargs):
         """Sends a PUT request. Refactor from requests module
 
         :param url: URL for the new :class:`Request` object.
@@ -120,8 +135,13 @@ class RTCBase(object):
             A CA_BUNDLE path can also be provided.
         :param headers: (optional) Dictionary of HTTP Headers to send with
             the :class:`Request`.
+        :param proxies: (optional) Dictionary mapping protocol to the URL of
+            the proxy.
+        :param timeout: (optional) How long to wait for the server to send data
+            before giving up, as a float, or a :ref:`(connect timeout, read
+            timeout) <timeouts>` tuple.
         :type timeout: float or tuple
-        :param \*\*kwargs: Optional arguments that ``request`` takes.
+        :param kwargs: Optional arguments that ``request`` takes.
         :return: :class:`Response <Response>` object
         :rtype: requests.Response
         """
@@ -130,7 +150,7 @@ class RTCBase(object):
                        url, data)
         response = requests.put(url, data=data,
                                 verify=verify, headers=headers,
-                                timeout=timeout, **kwargs)
+                                proxies=proxies, timeout=timeout, **kwargs)
         if response.status_code not in [200, 201]:
             self.log.error('Failed PUT request at <%s> with response: %s',
                            url,
@@ -138,7 +158,8 @@ class RTCBase(object):
             response.raise_for_status()
         return response
 
-    def delete(self, url, headers=None, verify=False,
+    @token_expire_handler
+    def delete(self, url, headers=None, verify=False, proxies=None,
                timeout=60, **kwargs):
         """Sends a DELETE request. Refactor from requests module
 
@@ -147,8 +168,13 @@ class RTCBase(object):
             the :class:`Request`.
         :param verify: (optional) if ``True``, the SSL cert will be verified.
             A CA_BUNDLE path can also be provided.
+        :param proxies: (optional) Dictionary mapping protocol to the URL of
+            the proxy.
+        :param timeout: (optional) How long to wait for the server to send data
+            before giving up, as a float, or a :ref:`(connect timeout, read
+            timeout) <timeouts>` tuple.
         :type timeout: float or tuple
-        :param \*\*kwargs: Optional arguments that ``request`` takes.
+        :param kwargs: Optional arguments that ``request`` takes.
         :return: :class:`Response <Response>` object
         :rtype: requests.Response
         """
@@ -158,6 +184,7 @@ class RTCBase(object):
         response = requests.delete(url,
                                    headers=headers,
                                    verify=verify,
+                                   proxies=proxies,
                                    timeout=timeout,
                                    **kwargs)
         if response.status_code not in [200, 201]:
@@ -211,10 +238,10 @@ class FieldBase(RTCBase):
 
         self.log.debug("Start initializing data from %s",
                        self.url)
-        headers = self.rtc_obj.headers
         resp = self.get(self.url,
                         verify=False,
-                        headers=headers)
+                        proxies=self.rtc_obj.proxies,
+                        headers=self.rtc_obj.headers)
         self.__initialize(resp)
         self.log.info("Finish the initialization for <%s %s>",
                       self.__class__.__name__, self)
@@ -229,6 +256,7 @@ class FieldBase(RTCBase):
 
     def __initializeFromRaw(self):
         """Initialze from raw data (OrderedDict)"""
+
         for (key, value) in self.raw_data.items():
             if key.startswith("@"):
                 # be compatible with IncludedInBuild
@@ -269,8 +297,13 @@ class FieldBase(RTCBase):
         if rdf_url.endswith("rtc_cm:results"):
             return rdf_url
 
+        # keep attachment url
+        if "/resource/content/" in rdf_url:
+            return rdf_url
+
         resp = self.get(rdf_url,
                         verify=False,
+                        proxies=self.rtc_obj.proxies,
                         headers=self.rtc_obj.headers)
         raw_data = xmltodict.parse(resp.content)
 

@@ -1,4 +1,4 @@
-from rtcclient.client import RTCClient
+from rtcclient import RTCClient
 import requests
 import pytest
 import utils_test
@@ -19,7 +19,7 @@ def test_headers(mocker):
     mocked_get.return_value = mock_rsp
     mocked_post.return_value = mock_rsp
 
-    expected_headers = {"Content-Type": "application/x-www-form-urlencoded",
+    expected_headers = {"Content-Type": "text/xml",
                         "Cookie": "cookie-id",
                         "Accept": "text/xml"}
 
@@ -39,6 +39,7 @@ def test_headers(mocker):
 
 
 class TestRTCClient:
+
     @pytest.fixture(autouse=True)
     def myrtcclient(self, rtcclient):
         myclient = rtcclient
@@ -274,24 +275,24 @@ class TestRTCClient:
         for projectarea_id in projectarea_valid_ids:
             bool_value = myrtcclient.checkProjectAreaID(projectarea_id,
                                                         archived=True)
-            assert True == bool_value
+            assert True is bool_value
 
         projectarea_valid_ids = ["_CuZu0HUwEeKicpXBddtqNA",
                                  u"_CuZu0HUwEeKicpXBddtqNA"]
         for projectarea_id in projectarea_valid_ids:
             bool_value = myrtcclient.checkProjectAreaID(projectarea_id,
                                                         archived=False)
-            assert True == bool_value
+            assert True is bool_value
 
         projectarea_fake_ids = ["fake_id", u"fake_id"]
         for projectarea_id in projectarea_fake_ids:
             bool_value = myrtcclient.checkProjectAreaID(projectarea_id,
                                                         archived=True)
-            assert False == bool_value
+            assert False is bool_value
 
             bool_value = myrtcclient.checkProjectAreaID(projectarea_id,
                                                         archived=False)
-            assert False == bool_value
+            assert False is bool_value
 
     @pytest.fixture
     def mock_get_tas(self, mocker):

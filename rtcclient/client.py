@@ -6,7 +6,7 @@ from rtcclient.workitem import Workitem
 from rtcclient.models import TeamArea, Member, Administrator, PlannedFor
 from rtcclient.models import Severity, Priority, ItemType, SavedQuery
 from rtcclient.models import FiledAgainst, FoundIn, Comment, Action, State
-from rtcclient.models import IncludedInBuild, ChangeSet
+from rtcclient.models import IncludedInBuild, ChangeSet, Attachment
 import logging
 from rtcclient import urlparse, urlquote, urlencode, OrderedDict
 import copy
@@ -14,6 +14,7 @@ from rtcclient.template import Templater
 from rtcclient import _search_path
 from rtcclient.query import Query
 import six
+from rtcclient.utils import capitalize
 
 
 class RTCClient(RTCBase):
@@ -23,10 +24,12 @@ class RTCClient(RTCBase):
     :param url: the rtc url (e.g. https://your_domain:9443/jazz)
     :param username: the rtc username
     :param password: the rtc password
-    :param searchpath: the folder to store your templates.
+    :param proxies: (optional) Dictionary mapping protocol to the URL of
+            the proxy.
+    :param searchpath: (optional) the folder to store your templates.
         If `None`, the default search path
         (/your/site-packages/rtcclient/templates) will be loaded.
-    :param ends_with_jazz: (optional) Set to `True` (default) if
+    :param ends_with_jazz: (optional but important) Set to `True` (default) if
         the url ends with 'jazz', otherwise to `False` if with 'ccm'
         (Refer to issue #68 for details)
     :type ends_with_jazz: bool
@@ -44,7 +47,7 @@ class RTCClient(RTCBase):
 
     log = logging.getLogger("client.RTCClient")
 
-    def __init__(self, url, username, password, searchpath=None,
+    def __init__(self, url, username, password, proxies=None, searchpath=None,
                  ends_with_jazz=True):
         """Initialization
 
@@ -53,6 +56,7 @@ class RTCClient(RTCBase):
 
         self.username = username
         self.password = password
+        self.proxies = proxies
         RTCBase.__init__(self, url)
 
         if not isinstance(ends_with_jazz, bool):
@@ -81,20 +85,11 @@ class RTCClient(RTCBase):
 
         _headers = {"Content-Type": self.CONTENT_XML}
         resp = self.get(self.url + "/authenticated/identity",
+                        auth=(self.username, self.password),
                         verify=False,
                         headers=_headers,
+                        proxies=self.proxies,
                         allow_redirects=_allow_redirects)
-
-        _headers["Content-Type"] = self.CONTENT_URL_ENCODED
-        _headers["Cookie"] = resp.headers.get("set-cookie")
-        credentials = urlencode({"j_username": self.username,
-                                 "j_password": self.password})
-
-        resp = self.post(self.url + "/authenticated/j_security_check",
-                         data=credentials,
-                         verify=False,
-                         headers=_headers,
-                         allow_redirects=_allow_redirects)
 
         # authfailed
         authfailed = resp.headers.get("x-com-ibm-team-repository-web-auth-msg")
@@ -102,13 +97,22 @@ class RTCClient(RTCBase):
             raise exception.RTCException("Authentication Failed: "
                                          "Invalid username or password")
 
+        # header changes in 6.0.3, issue #92
+        authfailedloc = resp.headers.get("Location")
+        if authfailedloc is not None and authfailedloc.endswith("authfailed"):
+            raise exception.RTCException("Authentication Failed: "
+                                         "Invalid username or password")
+
         # fix issue #68
         if not _allow_redirects:
-            _headers["Cookie"] = resp.headers.get("set-cookie")
+            if resp.headers.get("set-cookie") is not None:
+                _headers["Cookie"] = resp.headers.get("set-cookie")
 
         resp = self.get(self.url + "/authenticated/identity",
+                        auth=(self.username, self.password),
                         verify=False,
                         headers=_headers,
+                        proxies=self.proxies,
                         allow_redirects=_allow_redirects)
 
         # fix issue #68
@@ -120,13 +124,23 @@ class RTCClient(RTCBase):
         _headers["Accept"] = self.CONTENT_XML
         return _headers
 
+    def relogin(self):
+        """Relogin the RTC Server/Jazz when the token expires
+
+        """
+
+        self.log.info("Cookie expires. Relogin to get a new cookie.")
+        self.headers = None
+        self.headers = self._get_headers()
+        self.log.debug("Successfully relogin.")
+
     def getProjectAreas(self, archived=False, returned_properties=None):
         """Get all :class:`rtcclient.project_area.ProjectArea` objects
 
         If no :class:`rtcclient.project_area.ProjectArea` objects are
         retrieved, `None` is returned.
 
-        :param archived (default is False): whether the project area
+        :param archived: (default is False) whether the project area
             is archived
         :param returned_properties: the returned properties that you want.
             Refer to :class:`rtcclient.client.RTCClient` for more explanations
@@ -143,7 +157,7 @@ class RTCClient(RTCBase):
         """Get :class:`rtcclient.project_area.ProjectArea` object by its name
 
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the project area
+        :param archived: (default is False) whether the project area
             is archived
         :param returned_properties: the returned properties that you want.
             Refer to :class:`rtcclient.client.RTCClient` for more explanations
@@ -205,7 +219,7 @@ class RTCClient(RTCBase):
 
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
-        :param archived (default is False): whether the project area
+        :param archived: (default is False) whether the project area
             is archived
         :param returned_properties: the returned properties that you want.
             Refer to :class:`rtcclient.client.RTCClient` for more explanations
@@ -237,7 +251,7 @@ class RTCClient(RTCBase):
         """Get :class:`rtcclient.project_area.ProjectArea` id by its name
 
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the project area
+        :param archived: (default is False) whether the project area
             is archived
         :return: the :class:`string` object
         :rtype: string
@@ -259,7 +273,7 @@ class RTCClient(RTCBase):
         :class:`rtcclient.project_area.ProjectArea` id(s) will be returned.
 
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the project area
+        :param archived: (default is False) whether the project area
             is archived
         :return: a :class:`list` that contains all the :class:`ProjectArea` ids
         :rtype: list
@@ -288,7 +302,7 @@ class RTCClient(RTCBase):
 
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
-        :param archived (default is False): whether the project area is
+        :param archived: (default is False) whether the project area is
             archived
         :return: `True` or `False`
         :rtype: bool
@@ -325,7 +339,7 @@ class RTCClient(RTCBase):
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the team area
+        :param archived: (default is False) whether the team area
             is archived
         :param returned_properties: the returned properties that you want.
             Refer to :class:`rtcclient.client.RTCClient` for more explanations
@@ -368,7 +382,7 @@ class RTCClient(RTCBase):
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the team areas
+        :param archived: (default is False) whether the team areas
             are archived
         :param returned_properties: the returned properties that you want.
             Refer to :class:`rtcclient.client.RTCClient` for more explanations
@@ -431,7 +445,7 @@ class RTCClient(RTCBase):
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the plannedfor
+        :param archived: (default is False) whether the plannedfor
             is archived
         :param returned_properties: the returned properties that you want.
             Refer to :class:`rtcclient.client.RTCClient` for more explanations
@@ -475,7 +489,7 @@ class RTCClient(RTCBase):
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the plannedfors
+        :param archived: (default is False) whether the plannedfors
             are archived
         :param returned_properties: the returned properties that you want.
             Refer to :class:`rtcclient.client.RTCClient` for more explanations
@@ -663,7 +677,7 @@ class RTCClient(RTCBase):
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the foundin is archived
+        :param archived: (default is False) whether the foundin is archived
         :return: the :class:`rtcclient.models.FoundIn` object
         :rtype: rtcclient.models.FoundIn
         """
@@ -702,7 +716,7 @@ class RTCClient(RTCBase):
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the foundins are archived
+        :param archived: (default is False) whether the foundins are archived
         :return: a :class:`list` that contains all the
             :class:`rtcclient.models.FoundIn` objects
         :rtype: list
@@ -735,7 +749,7 @@ class RTCClient(RTCBase):
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the filedagainst is
+        :param archived: (default is False) whether the filedagainst is
             archived
         :return: the :class:`rtcclient.models.FiledAgainst` object
         :rtype: rtcclient.models.FiledAgainst
@@ -776,7 +790,7 @@ class RTCClient(RTCBase):
         :param projectarea_id: the :class:`rtcclient.project_area.ProjectArea`
             id
         :param projectarea_name: the project area name
-        :param archived (default is False): whether the filedagainsts are
+        :param archived: (default is False) whether the filedagainsts are
             archived
         :return: a :class:`list` that contains all the
             :class:`rtcclient.models.FiledAgainst` objects
@@ -890,6 +904,7 @@ class RTCClient(RTCBase):
                 req_url = workitem_url
             resp = self.get(req_url,
                             verify=False,
+                            proxies=self.proxies,
                             headers=self.headers)
             raw_data = xmltodict.parse(resp.content)
             workitem_raw = raw_data["oslc_cm:ChangeRequest"]
@@ -926,7 +941,7 @@ class RTCClient(RTCBase):
         :param projectarea_name: the project area name
         :param returned_properties: the returned properties that you want.
             Refer to :class:`rtcclient.client.RTCClient` for more explanations
-        :param archived (default is False): whether the workitems are archived
+        :param archived: (default is False) whether the workitems are archived
         :return: a :class:`list` that contains all the
             :class:`rtcclient.workitem.Workitem` objects
         :rtype: list
@@ -1000,7 +1015,7 @@ class RTCClient(RTCBase):
         :param keep: refer to `keep` in
             :class:`rtcclient.template.Templater.getTemplate`. Only works when
             `template` is not specified
-        :param \*\*kwargs: Optional/mandatory arguments when creating a new
+        :param kwargs: Optional/mandatory arguments when creating a new
             workitem. More details, please refer to `kwargs` in
             :class:`rtcclient.template.Templater.render`
         :return: the :class:`rtcclient.workitem.Workitem` object
@@ -1047,7 +1062,7 @@ class RTCClient(RTCBase):
                       item_type, wi_raw)
 
         wi_url_post = "/".join([self.url,
-                                "/oslc/contexts",
+                                "oslc/contexts",
                                 projectarea_id,
                                 "workitems/%s" % itemtype.identifier])
         return self._createWorkitem(wi_url_post, wi_raw)
@@ -1078,13 +1093,16 @@ class RTCClient(RTCBase):
             if prefix is not None:
                 description = prefix + description
 
-        self.log.info("Start to create a new <Workitem>, copied from ",
+        self.log.info("Start to create a new <Workitem>, copied from "
                       "<Workitem %s>", copied_from)
+
+        projectarea = self.getProjectAreaByID(copied_wi.contextId)
+        itemtype = projectarea.getItemType(copied_wi.type)
 
         wi_url_post = "/".join([self.url,
                                 "oslc/contexts/%s" % copied_wi.contextId,
                                 "workitems",
-                                "%s" % copied_wi.type.split("/")[-1]])
+                                "%s" % itemtype.identifier])
         wi_raw = self.templater.renderFromWorkitem(copied_from,
                                                    keep=True,
                                                    encoding="UTF-8",
@@ -1097,7 +1115,8 @@ class RTCClient(RTCBase):
         headers['Content-Type'] = self.OSLC_CR_XML
 
         resp = self.post(url_post, verify=False,
-                         headers=headers, data=workitem_raw)
+                         headers=headers, proxies=self.proxies,
+                         data=workitem_raw)
 
         raw_data = xmltodict.parse(resp.content)
         workitem_raw = raw_data["oslc_cm:ChangeRequest"]
@@ -1133,7 +1152,7 @@ class RTCClient(RTCBase):
         # get rdf:resource by keywords
         for keyword in kwargs.keys():
             try:
-                keyword_cls = eval("self.get" + keyword.capitalize())
+                keyword_cls = eval("self.get" + capitalize(keyword))
                 keyword_obj = keyword_cls(kwargs[keyword],
                                           projectarea_id=projectarea_id)
                 kwargs[keyword] = keyword_obj.url
@@ -1151,7 +1170,7 @@ class RTCClient(RTCBase):
 
         input_attributes = set(kwargs.keys())
         missing_attributes = parameters.difference(input_attributes)
-        if not missing_attributes:
+        if bool(missing_attributes):
             error_msg = "Missing Parameters: %s" % list(missing_attributes)
             self.log.error(error_msg)
             raise exception.EmptyAttrib(error_msg)
@@ -1217,7 +1236,8 @@ class RTCClient(RTCBase):
                              "IncludedInBuild",
                              "Parent",
                              "Children",
-                             "ChangeSet"]
+                             "ChangeSet",
+                             "Attachment"]
         customized_required = ["Action",
                                "Query",
                                "State",
@@ -1225,7 +1245,8 @@ class RTCClient(RTCBase):
                                "IncludedInBuild",
                                "Parent",
                                "Children",
-                               "ChangeSet"]
+                               "ChangeSet",
+                               "Attachment"]
 
         if resource_name in projectarea_required and not projectarea_id:
             self.log.error("No ProjectArea ID is specified")
@@ -1271,7 +1292,9 @@ class RTCClient(RTCBase):
                    "Children": "workitems/%s/%s" % (workitem_id,
                                                     customized_attr),
                    "ChangeSet": "workitems/%s/%s" % (workitem_id,
-                                                     customized_attr)
+                                                     customized_attr),
+                   "Attachment": "workitems/%s/%s" % (workitem_id,
+                                                      customized_attr),
                    }
 
         entry_map = {"TeamArea": "rtc_cm:Team",
@@ -1295,7 +1318,8 @@ class RTCClient(RTCBase):
                      "IncludedInBuild": "oslc_auto:AutomationResult",
                      "Parent": "oslc_cm:ChangeRequest",
                      "Children": "oslc_cm:ChangeRequest",
-                     "ChangeSet": "rtc_cm:Reference"
+                     "ChangeSet": "rtc_cm:Reference",
+                     "Attachment": "rtc_cm:Attachment"
                      }
 
         if resource_name not in res_map:
@@ -1326,6 +1350,7 @@ class RTCClient(RTCBase):
 
         resp = self.get(resource_url,
                         verify=False,
+                        proxies=self.proxies,
                         headers=self.headers)
         raw_data = xmltodict.parse(resp.content)
 
@@ -1373,6 +1398,7 @@ class RTCClient(RTCBase):
             if url_next:
                 resp = self.get(url_next,
                                 verify=False,
+                                proxies=self.proxies,
                                 headers=self.headers)
                 raw_data = xmltodict.parse(resp.content)
             else:
@@ -1468,7 +1494,7 @@ class RTCClient(RTCBase):
         :param projectarea_name: the project area name
         :param returned_properties: the returned properties that you want.
             Refer to :class:`rtcclient.client.RTCClient` for more explanations
-        :param archived (default is False): whether the workitems are archived
+        :param archived: (default is False) whether the workitems are archived
         :return: a :class:`list` that contains the queried
             :class:`rtcclient.workitem.Workitem` objects
         :rtype: list
